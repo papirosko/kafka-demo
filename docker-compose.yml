@@ -1,0 +1,113 @@
+version: '3.8'
+
+x-kafka-common: &kafka-common
+  image: 'bitnami/kafka:latest'
+  ports:
+    - "9092"
+  networks:
+    - kafka
+  healthcheck:
+    test: [ "CMD", "/opt/bitnami/kafka/bin/kafka-topics.sh",  "--list", "--bootstrap-server", "localhost:9092" ]
+    interval: 5s
+    timeout: 10s
+    retries: 3
+    start_period: 10s
+
+
+
+
+x-kafka-env-common: &kafka-env-common
+  ALLOW_PLAINTEXT_LISTENER: 'yes'
+  KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: 'true'
+  KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka-0:9093,1@kafka-1:9093
+  KAFKA_KRAFT_CLUSTER_ID: abcdefghijklmnopqrstuv
+
+services:
+
+  kafka-0:
+    <<: *kafka-common
+    environment:
+      <<: *kafka-env-common
+      KAFKA_CFG_NODE_ID: 0
+    volumes:
+      - kafka_0_data:/bitnami/kafka
+
+  kafka-1:
+    <<: *kafka-common
+    environment:
+      <<: *kafka-env-common
+      KAFKA_CFG_NODE_ID: 1
+    volumes:
+      - kafka_1_data:/bitnami/kafka
+
+
+  kafka-ui:
+    container_name: kafka-ui
+    image: provectuslabs/kafka-ui:latest
+    volumes:
+      - ./kafka-ui/config.yml:/etc/kafkaui/dynamic_config.yaml
+    environment:
+      DYNAMIC_CONFIG_ENABLED: 'true'
+    depends_on:
+      - kafka-0
+      - kafka-1
+    networks:
+      - kafka
+    ports:
+      - '8080:8080'
+
+
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    ports:
+      - 9090:9090
+    volumes:
+      - ./prometheus:/etc/prometheus
+      - prom_data:/prometheus
+    networks:
+      - kafka
+
+  kafka-exporter:
+    image: docker.io/bitnami/kafka-exporter:latest
+    depends_on:
+      kafka-0:
+        condition: service_healthy
+      kafka-1:
+        condition: service_healthy
+    ports:
+      - "9308:9308"
+    networks:
+      - kafka
+    command: --kafka.server=kafka-0:9092 --kafka.server=kafka-1:9092
+
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=grafana
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    networks:
+      - kafka
+
+networks:
+  kafka:
+
+volumes:
+  kafka_0_data:
+    driver: local
+  kafka_1_data:
+    driver: local
+  prom_data:
+    driver: local
+
+
+
