@@ -38,6 +38,7 @@ x-kafka-env-common: &kafka-env-common
   KAFKA_CFG_PROCESS_ROLES: controller,broker
   KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
   KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+  EXTRA_ARGS: "-Xms128m -Xmx256m"
 
 services:
 
@@ -101,7 +102,8 @@ Now we need to create a new topic and put some messages into it.
 Kafka comes with a set of scripts for managing it, let's use them:
 
 ```shell
-docker compose exec kafka-0 /opt/bitnami/kafka/bin/kafka-topics.sh --create --bootstrap-server kafka-0:9092,kafka-1:9092 --replication-factor 1 --partitions 1 --topic test
+docker compose exec kafka-0 /opt/bitnami/kafka/bin/kafka-topics.sh --create \
+    --bootstrap-server kafka-0:9092,kafka-1:9092 --replication-factor 1 --partitions 1 --topic test
 ```
 We tell the `kafka-topics.sh` that it should use our kafka instances as a bootstrap servers.
 As a result you should see 
@@ -127,7 +129,8 @@ docker compose exec kafka-0 /opt/bitnami/kafka/bin/kafka-console-producer.sh --b
 
 Open another terminal (consumer terminal) and read the message with a consumer:
 ```shell
-docker compose exec kafka-0  /opt/bitnami/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka-0:9092,kafka-1:9092 --consumer.config /opt/bitnami/kafka/config/consumer.properties --topic test --from-beginning
+docker compose exec kafka-0  /opt/bitnami/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server kafka-0:9092,kafka-1:9092 --consumer.config /opt/bitnami/kafka/config/consumer.properties --topic test --from-beginning
 ```
 You should see `message0`. Switch back to the producer terminal and type another message. You will see it immediately 
 in consumer terminal.
@@ -167,7 +170,7 @@ Add the following to the `docker-compose.yml`:
 
 You need to create a configuration file for the kafka ui:
 ```shell
-mkdir kafka-ui
+mkdir -p kafka-ui
 touch kafka-ui/config.yml
 ```
 Kafka ui can be configured with environment variables, but I prefer yaml, because variables will become very messy
@@ -190,13 +193,13 @@ kafka:
       name: kafka
 ```
 
-Stop current docker compose process (control+c) and restart it::
+Stop current docker compose process (control+c) and restart it:
 ```shell
 docker compose up
 ```
 
 
-Open kafka ui in the browser http://localhost:8080. Use `admin:admin` as a credentials (see `kafka-ui/config.yml`).
+Open kafka ui in the browser http://localhost:8080. Use `admin`:`admin` as a credentials (see `kafka-ui/config.yml`).
 You will see our new cluster.
 
 Visit http://localhost:8080/ui/clusters/kafka/all-topics/test/messages?keySerde=String&valueSerde=String&limit=100 and 
@@ -225,7 +228,13 @@ Let's add new services to the `docker-compose.yml`:
       - prom_data:/prometheus
     networks:
       - kafka  
-
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider localhost:9090 || exit 1
+      interval: 5s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+      
   kafka-exporter:
     image: docker.io/bitnami/kafka-exporter:latest
     depends_on:
@@ -236,6 +245,12 @@ Let's add new services to the `docker-compose.yml`:
     networks:
       - kafka
     command: --kafka.server=kafka-0:9092 --kafka.server=kafka-1:9092
+    healthcheck:
+      test: "bash -c 'printf \"\" > /dev/tcp/127.0.0.1/9308; exit $$?;'"
+      interval: 5s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
       
         
   grafana:
@@ -251,6 +266,12 @@ Let's add new services to the `docker-compose.yml`:
       - ./grafana/dashboards:/var/lib/grafana/dashboards
     networks:
       - kafka
+    healthcheck:
+      test: curl --fail localhost:3000
+      interval: 5s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 ```
 and this in `volumes` section:
 ```yaml
@@ -274,7 +295,7 @@ There is also one more way to collect metrics (they can be used together):
 Download the jar and the config:
 ```shell
 mkdir -p jmx-exporter
-curl https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/0.19.0/jmx_prometheus_javaagent-0.19.0.jar\
+curl https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/0.19.0/jmx_prometheus_javaagent-0.19.0.jar \
   -o jmx-exporter/jmx_prometheus_javaagent-0.19.0.jar
 curl  https://raw.githubusercontent.com/prometheus/jmx_exporter/main/example_configs/kafka-2_0_0.yml \
   -o jmx-exporter/kafka-2_0_0.yml
@@ -309,7 +330,10 @@ x-kafka-env-common: &kafka-env-common
   KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: 'true'
   KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka-0:9093,1@kafka-1:9093
   KAFKA_KRAFT_CLUSTER_ID: abcdefghijklmnopqrstuv
-  EXTRA_ARGS: "-Xmx=256m -javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent-0.19.0.jar=9404:/opt/jmx-exporter/kafka-2_0_0.yml"
+  KAFKA_CFG_PROCESS_ROLES: controller,broker
+  KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+  EXTRA_ARGS: "-Xms128m -Xmx256m -javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent-0.19.0.jar=9404:/opt/jmx-exporter/kafka-2_0_0.yml"
 ```
 
 The exporter will be available at port 9404:
@@ -334,8 +358,8 @@ kafka:
 
 ## Prometheus
 Create configuration file for a prometheus:
-```
-mkdir prometheus
+```shell
+mkdir -p prometheus
 touch prometheus/prometheus.yml
 ```
 Put the following content:
@@ -433,7 +457,7 @@ providers:
 
 
 Now restart docker compose and visit http://localhost:3000/dashboards. Use `admin`:`grafana` as credentials.
-Open dashboard with name `Kafka Exporter Overview`, you will see some details about the cluster.
+Open dashboard with name `Strimzi Kafka Exporter`, you will see some details about the cluster.
 
 
 
@@ -446,7 +470,7 @@ Also we can view the details of the cluster with UI and watch the cluster metric
 - APACHE KAFKA: https://kafka.apache.org/
 - Bitnami kafka image: https://hub.docker.com/r/bitnami/kafka/
 - Grafana: https://grafana.com/
+- jmx_exporter: https://github.com/prometheus/jmx_exporter
 - Kafka Exporter: https://github.com/danielqsj/kafka_exporter
 - Kafka UI: https://github.com/provectus/kafka-ui
 - Prometheus: https://prometheus.io/
-
