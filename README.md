@@ -302,12 +302,12 @@ x-kafka-env-common: &kafka-env-common
   KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: 'true'
   KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka-0:9093,1@kafka-1:9093
   KAFKA_KRAFT_CLUSTER_ID: abcdefghijklmnopqrstuv
-  EXTRA_ARGS: "-javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent-0.19.0.jar=9404:/opt/jmx-exporter/kafka-2_0_0.yml"
+  EXTRA_ARGS: "-Xmx=256m -javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent-0.19.0.jar=9404:/opt/jmx-exporter/kafka-2_0_0.yml"
 ```
 
-The exporter will be available at port 9404 and path `/metrics` (check the correct container name using `docker ps`):
+The exporter will be available at port 9404:
 ```shell
-docker compose exec -it kafka-0 curl localhost:9404/metrics
+docker compose exec kafka-0 curl localhost:9404
 ```
 
 We also want Kafka UI to use the metrics. Add this to `kafka-ui/config.yml`:
@@ -372,17 +372,12 @@ mkdir -p grafana/provisioning/datasources
 mkdir -p grafana/provisioning/dashboards
 touch grafana/provisioning/datasources/datasource.yml
 touch grafana/provisioning/dashboards/dashboard.yml
-curl https://grafana.com/api/dashboards/7589/revisions/5/download -o grafana/dashboards/kafka-exporter.json
-sed -i '' 's/${DS_PROMETHEUS_WH211}/Prometheus/g' grafana/dashboards/kafka-exporter.json
-curl https://grafana.com/api/dashboards/11962/revisions/4/download -o grafana/dashboards/jmx-exporter.json
+curl https://raw.githubusercontent.com/strimzi/strimzi-kafka-operator/main/examples/metrics/grafana-dashboards/strimzi-kafka-exporter.json -o grafana/dashboards/strimzi-kafka-exporter.json
+curl https://raw.githubusercontent.com/strimzi/strimzi-kafka-operator/main/examples/metrics/grafana-dashboards/strimzi-kafka.json -o grafana/dashboards/strimzi-kafka.json
 ```
 
 We tell the grafana to provision prometheus datasource. Also we download the dashboard for the kafka exporter and
 jmx exporter  and tell grafana to use it.
-
-There is some issue with dashboard for the kafka exporter and the latest grafana, this is why 
-I have to use `sed` command. 
-Also this variant of command is for mac. On linux you should use `sed -i s/${DS_P...`
 
 Put the following into `grafana/provisioning/datasources/datasource.yml`:
 
