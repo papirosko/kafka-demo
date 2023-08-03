@@ -74,7 +74,12 @@ Here we define 2 services: `kafka-0` and `kafka-1`.
 We don't need any encryption, so we use `ALLOW_PLAINTEXT_LISTENER=yes`.
 Also we don't use zookeeper, instead we will use [KRaft protocol](https://developer.confluent.io/learn/kraft/).
 
-We will add a healthcheck command, which will later help us to run dependent services.
+We will add a healthcheck command, which will later help us to run dependent services. The reason why we do not 
+use `curl` is because the response will be empty, and it will make `curl` produce an error
+```
+curl: (52) Empty reply from server
+```
+As a result, node will be marked as unhealthy.
 
 On each node we need to set its id with this variable: `KAFKA_CFG_NODE_ID`.
 
