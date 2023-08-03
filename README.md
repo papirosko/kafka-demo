@@ -23,11 +23,12 @@ x-kafka-common: &kafka-common
   networks:
     - kafka
   healthcheck:
-    test: [ "CMD", "/opt/bitnami/kafka/bin/kafka-topics.sh",  "--list", "--bootstrap-server", "localhost:9092" ]
+    test: "bash -c 'printf \"\" > /dev/tcp/127.0.0.1/9092; exit $$?;'"
     interval: 5s
     timeout: 10s
     retries: 3
-    start_period: 10s
+    start_period: 30s
+  restart: unless-stopped
 
 x-kafka-env-common: &kafka-env-common
   ALLOW_PLAINTEXT_LISTENER: 'yes'
@@ -156,7 +157,13 @@ Add the following to the `docker-compose.yml`:
       - kafka
     ports:
       - '8080:8080'
-```
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider localhost:8080 || exit 1
+      interval: 5s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+ ```
 
 You need to create a configuration file for the kafka ui:
 ```shell
